@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import io.grpc.Cork;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
 import io.grpc.ServerCall;
@@ -340,6 +341,9 @@ public final class ServerCalls {
     public void setCompression(String compression) {
       call.setCompression(compression);
     }
+
+    @Override
+    public Cork cork() { return call.cork(); }
 
     @Override
     public void onNext(RespT response) {

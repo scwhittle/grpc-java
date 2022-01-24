@@ -16,6 +16,7 @@
 
 package io.grpc.stub;
 
+import io.grpc.Cork;
 import io.grpc.ExperimentalApi;
 
 /**
@@ -93,6 +94,11 @@ public abstract class ServerCallStreamObserver<V> extends CallStreamObserver<V> 
    * <p>This API is still a work in-progress and may change in the future.
    */
   public void disableAutoRequest() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Cork cork() {
     throw new UnsupportedOperationException();
   }
 }

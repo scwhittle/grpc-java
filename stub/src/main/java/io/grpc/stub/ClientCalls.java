@@ -26,6 +26,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.CallOptions;
 import io.grpc.Channel;
 import io.grpc.ClientCall;
+import io.grpc.Cork;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
 import io.grpc.Status;
@@ -395,6 +396,9 @@ public final class ClientCalls {
     public void disableAutoInboundFlowControl() {
       disableAutoRequestWithInitial(1);
     }
+
+    @Override
+    public Cork cork() { return call.cork(); }
 
     @Override
     public void disableAutoRequestWithInitial(int request) {

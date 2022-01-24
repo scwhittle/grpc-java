@@ -16,6 +16,7 @@
 
 package io.grpc.stub;
 
+import io.grpc.Cork;
 import io.grpc.ExperimentalApi;
 
 /**
@@ -129,4 +130,6 @@ public abstract class CallStreamObserver<V> implements StreamObserver<V> {
    * @param enable whether to enable compression.
    */
   public abstract void setMessageCompression(boolean enable);
+
+  public abstract Cork cork();
 }
