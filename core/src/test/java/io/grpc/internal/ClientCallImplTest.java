@@ -51,6 +51,7 @@ import io.grpc.ClientStreamTracer;
 import io.grpc.ClientStreamTracer.StreamInfo;
 import io.grpc.Codec;
 import io.grpc.Context;
+import io.grpc.Cork;
 import io.grpc.Deadline;
 import io.grpc.Decompressor;
 import io.grpc.DecompressorRegistry;
@@ -109,6 +110,14 @@ public class ClientCallImplTest {
       .setRequestMarshaller(TestMethodDescriptors.voidMarshaller())
       .setResponseMarshaller(TestMethodDescriptors.voidMarshaller())
       .build();
+
+  private final MethodDescriptor<Void, Void> clientStreamingMethod =
+      MethodDescriptor.<Void, Void>newBuilder()
+          .setType(MethodType.CLIENT_STREAMING)
+          .setFullMethodName("service/method")
+          .setRequestMarshaller(TestMethodDescriptors.voidMarshaller())
+          .setResponseMarshaller(TestMethodDescriptors.voidMarshaller())
+          .build();
 
   @Rule
   public final MockitoRule mocks = MockitoJUnit.rule();
@@ -1073,6 +1082,80 @@ public class ClientCallImplTest {
     call.start(callListener, new Metadata());
 
     assertEquals(attrs, call.getAttributes());
+  }
+
+  @Test
+  public void unary_withoutCork_shouldNotFlush() {
+    ClientCallImpl<Void, Void> call = new ClientCallImpl<Void, Void>(
+        method, MoreExecutors.directExecutor(), baseCallOptions, clientStreamProvider,
+        deadlineCancellationExecutor, channelCallTracer, configSelector);
+
+    call.start(callListener, new Metadata());
+    call.sendMessage(null);
+    verify(stream, never()).flush();
+  }
+
+  @Test
+  public void unary_withCork_shouldNotFlush() {
+    ClientCallImpl<Void, Void> call = new ClientCallImpl<Void, Void>(
+        method, MoreExecutors.directExecutor(), baseCallOptions, clientStreamProvider,
+        deadlineCancellationExecutor, channelCallTracer, configSelector);
+
+    call.start(callListener, new Metadata());
+    call.sendMessage(null);
+    verify(stream, never()).flush();
+  }
+
+  @Test
+  public void streaming_withoutCork_shouldFlush() {
+    ClientCallImpl<Void, Void> call = new ClientCallImpl<Void, Void>(
+        clientStreamingMethod, MoreExecutors.directExecutor(), baseCallOptions, clientStreamProvider,
+        deadlineCancellationExecutor, channelCallTracer, configSelector);
+
+    call.start(callListener, new Metadata());
+    call.sendMessage(null);
+    verify(stream, times(1)).flush();
+  }
+
+  @Test
+  public void streaming_withCork_shouldFlushAfterCorkRelease() throws IOException {
+    ClientCallImpl<Void, Void> call = new ClientCallImpl<Void, Void>(
+        clientStreamingMethod, MoreExecutors.directExecutor(), baseCallOptions, clientStreamProvider,
+        deadlineCancellationExecutor, channelCallTracer, configSelector);
+
+    final Cork cork = call.cork();
+    call.start(callListener, new Metadata());
+    call.sendMessage(null);
+    call.sendMessage(null);
+    call.sendMessage(null);
+    call.sendMessage(null);
+    verify(stream, never()).flush();
+    cork.close();
+
+    verify(stream, times(1)).flush();
+  }
+
+  @Test
+  public void streaming_withMultipleCorks_shouldFlushAfterCorkRelease() throws IOException {
+    ClientCallImpl<Void, Void> call = new ClientCallImpl<Void, Void>(
+        clientStreamingMethod, MoreExecutors.directExecutor(), baseCallOptions, clientStreamProvider,
+        deadlineCancellationExecutor, channelCallTracer, configSelector);
+
+    final Cork cork1 = call.cork();
+    final Cork cork2 = call.cork();
+    call.start(callListener, new Metadata());
+    call.sendMessage(null);
+    call.sendMessage(null);
+    call.sendMessage(null);
+    verify(stream, never()).flush();
+    cork1.close();
+    call.sendMessage(null);
+    call.sendMessage(null);
+    call.sendMessage(null);
+    verify(stream, never()).flush();
+    cork2.close();
+
+    verify(stream, times(1)).flush();
   }
 
   private static void assertTimeoutBetween(long timeout, long from, long to) {
