@@ -31,6 +31,7 @@ import io.grpc.Codec;
 import io.grpc.Compressor;
 import io.grpc.CompressorRegistry;
 import io.grpc.Context;
+import io.grpc.Cork;
 import io.grpc.DecompressorRegistry;
 import io.grpc.InternalDecompressorRegistry;
 import io.grpc.Metadata;
@@ -40,6 +41,8 @@ import io.grpc.Status;
 import io.perfmark.PerfMark;
 import io.perfmark.Tag;
 import java.io.InputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -67,6 +70,7 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
   private boolean closeCalled;
   private Compressor compressor;
   private boolean messageSent;
+  private final AtomicInteger numCorks = new AtomicInteger(0);
 
   ServerCallImpl(ServerStream stream, MethodDescriptor<ReqT, RespT> method,
       Metadata inboundHeaders, Context.CancellableContext context,
@@ -165,7 +169,9 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
     try {
       InputStream resp = method.streamResponse(message);
       stream.writeMessage(resp);
-      stream.flush();
+      if (numCorks.get() == 0) {
+        stream.flush();
+      }
     } catch (RuntimeException e) {
       close(Status.fromThrowable(e), new Metadata());
     } catch (Error e) {
@@ -228,6 +234,22 @@ final class ServerCallImpl<ReqT, RespT> extends ServerCall<ReqT, RespT> {
 
   ServerStreamListener newServerStreamListener(ServerCall.Listener<ReqT> listener) {
     return new ServerStreamListenerImpl<>(this, listener, context);
+  }
+
+  @Override
+  public Cork cork() {
+    numCorks.getAndIncrement();
+    return new Cork() {
+
+      private final AtomicBoolean closed = new AtomicBoolean(false);
+
+      @Override
+      public void close() {
+        if (!closed.getAndSet(true) && numCorks.decrementAndGet() == 0) {
+          stream.flush();
+        }
+      }
+    };
   }
 
   @Override

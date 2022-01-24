@@ -38,6 +38,7 @@ import io.grpc.Compressor;
 import io.grpc.CompressorRegistry;
 import io.grpc.Context;
 import io.grpc.Context.CancellationListener;
+import io.grpc.Cork;
 import io.grpc.Deadline;
 import io.grpc.DecompressorRegistry;
 import io.grpc.InternalConfigSelector;
@@ -58,6 +59,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.Nullable;
@@ -91,6 +94,7 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
   private boolean fullStreamDecompression;
   private DecompressorRegistry decompressorRegistry = DecompressorRegistry.getDefaultInstance();
   private CompressorRegistry compressorRegistry = CompressorRegistry.getDefaultInstance();
+  private final AtomicInteger numCorks = new AtomicInteger(0);
 
   ClientCallImpl(
       MethodDescriptor<ReqT, RespT> method, Executor executor, CallOptions callOptions,
@@ -525,9 +529,24 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
     // For unary requests, we don't flush since we know that halfClose should be coming soon. This
     // allows us to piggy-back the END_STREAM=true on the last message frame without opening the
     // possibility of broken applications forgetting to call halfClose without noticing.
-    if (!unaryRequest) {
+    if (!unaryRequest && numCorks.get() == 0) {
       stream.flush();
     }
+  }
+
+  @Override
+  public Cork cork() {
+      numCorks.getAndIncrement();
+    return new Cork() {
+      private final AtomicBoolean closed = new AtomicBoolean(false);
+
+      @Override
+      public void close() {
+        if (!closed.getAndSet(true) && numCorks.decrementAndGet() == 0) {
+          stream.flush();
+        }
+      }
+    };
   }
 
   @Override
